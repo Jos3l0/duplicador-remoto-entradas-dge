@@ -1,0 +1,33 @@
+.ew-rpd-wrap .ew-rpd-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+	margin: 18px 0;
+	padding: 18px 20px;
+}
+
+.ew-rpd-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 16px;
+}
+
+.ew-rpd-checkbox-line {
+	display: block;
+	margin: 6px 0;
+}
+
+.ew-rpd-ok {
+	color: #008a20;
+}
+
+.ew-rpd-log {
+	background: #1d2327;
+	border-radius: 6px;
+	color: #f0f0f1;
+	max-height: 380px;
+	overflow: auto;
+	padding: 14px;
+	white-space: pre-wrap;
+}
