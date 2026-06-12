@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.0.7 - 2026-06-12
+
+- Agregada migracion de medios desde Elementor: procesa `_elementor_data` postmeta y migra PDFs, imagenes y cualquier archivo referenciado en el JSON.
+- Nuevo metodo `sync_file_by_url()` en `EW_RPD_Media` para migrar cualquier archivo por su URL local.
+- URLs de terceros (dominios externos) se preservan sin cambios en el contenido.
+- Archivos locales no registrados como attachments se leen del disco y se suben directamente.
+
+## 1.0.6
+
+- Correccion definitiva de la columna administrativa **Sincronizado**.
+- La columna se registra desde el bootstrap principal del plugin para que exista antes de que WordPress construya la tabla de entradas.
+- Se agregan hooks directos para `manage_post_posts_columns`, `manage_posts_columns`, `manage_post_posts_custom_column` y `manage_posts_custom_column`.
+
+# Changelog
+
+## 1.0.6
+- Corregido el registro de la columna administrativa `Sincronizado` para que aparezca en la lista nativa de entradas.
+- Agregado fallback con `manage_posts_columns` y `manage_posts_custom_column`.
+- Agregado registro adicional en `admin_init` para evitar que el hook quede fuera de tiempo en pantallas de administración.
+
+## 1.0.4
+
+- Agregada columna administrativa `Sincronizado` en el listado de entradas y tipos de contenido configurados.
+- La columna se inserta entre `Titulo` y `Categorias`.
+- Agregados iconos visuales para estados: sincronizado, no sincronizado, error y sincronizacion parcial.
+- Agregados metadatos de estado: `_ew_rpd_last_sync_status` y `_ew_rpd_last_sync_error`.
+- La columna muestra ID remoto, enlace `Ver remoto` y tooltip con ultima sincronizacion/error cuando corresponde.
+- Actualizado valor de version del plugin a 1.0.4.
+
 ## 1.0.3
 
 - Nombre del plugin traducido a espanol: Duplicador Remoto de Entradas DGE.

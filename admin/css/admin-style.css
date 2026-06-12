@@ -31,3 +31,95 @@
 	padding: 14px;
 	white-space: pre-wrap;
 }
+
+
+.fixed .column-ew_rpd_sync_status {
+	width: 130px;
+}
+
+.ew-rpd-sync-status {
+	align-items: center;
+	border-radius: 999px;
+	display: inline-flex;
+	height: 28px;
+	justify-content: center;
+	position: relative;
+	vertical-align: middle;
+	width: 38px;
+}
+
+.ew-rpd-sync-status .dashicons {
+	font-size: 24px;
+	height: 24px;
+	width: 24px;
+}
+
+.ew-rpd-sync-badge {
+	align-items: center;
+	border: 2px solid #fff;
+	border-radius: 50%;	
+	bottom: 1px;
+	display: inline-flex;
+	font-size: 10px;
+	font-weight: 700;
+	height: 14px;
+	justify-content: center;
+	line-height: 1;
+	position: absolute;
+	right: 1px;
+	width: 14px;
+}
+
+.ew-rpd-sync-status-synced {
+	color: #2271b1;
+}
+
+.ew-rpd-sync-status-synced .ew-rpd-sync-badge {
+	background: #00a32a;
+}
+
+.ew-rpd-sync-status-synced .ew-rpd-sync-badge::before {
+	color: #fff;
+	content: "✓";
+}
+
+.ew-rpd-sync-status-error {
+	color: #b32d2e;
+}
+
+.ew-rpd-sync-status-error .ew-rpd-sync-badge {
+	background: #d63638;
+}
+
+.ew-rpd-sync-status-error .ew-rpd-sync-badge::before {
+	color: #fff;
+	content: "!";
+}
+
+.ew-rpd-sync-status-partial {
+	color: #b26200;
+}
+
+.ew-rpd-sync-status-partial .ew-rpd-sync-badge {
+	background: #dba617;
+}
+
+.ew-rpd-sync-status-partial .ew-rpd-sync-badge::before {
+	color: #1d2327;
+	content: "…";
+}
+
+.ew-rpd-sync-status-not-synced {
+	color: #8c8f94;
+}
+
+.ew-rpd-sync-status-not-synced .ew-rpd-sync-badge {
+	display: none;
+}
+
+.ew-rpd-sync-meta {
+	color: #646970;
+	font-size: 11px;
+	line-height: 1.35;
+	margin-top: 2px;
+}

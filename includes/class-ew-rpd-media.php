@@ -212,4 +212,123 @@ class EW_RPD_Media {
 			);
 		}
 	}
+
+	/**
+	 * Sync any file by URL to the destination media library.
+	 *
+	 * @param string $url             URL to sync.
+	 * @param int    $context_post_id Optional local post ID for logging.
+	 * @return array|WP_Error Remote media object subset or error.
+	 */
+	public function sync_file_by_url( $url, $context_post_id = 0 ) {
+		$url = esc_url_raw( $url );
+
+		if ( '' === $url ) {
+			return new WP_Error( 'ew_rpd_empty_url', __( 'URL vacia.', 'ew-remote-post-duplicator' ) );
+		}
+
+		if ( ! $this->is_local_url( $url ) ) {
+			return new WP_Error( 'ew_rpd_external_url', __( 'URL externa; no se migra.', 'ew-remote-post-duplicator' ) );
+		}
+
+		$attachment_id = absint( attachment_url_to_postid( $url ) );
+
+		if ( $attachment_id > 0 && 'attachment' === get_post_type( $attachment_id ) ) {
+			return $this->sync_attachment( $attachment_id, $context_post_id );
+		}
+
+		$file_path = $this->url_to_local_path( $url );
+
+		if ( ! $file_path || ! file_exists( $file_path ) ) {
+			$this->logger->warning( 'File not found by URL.', array( 'post_id' => absint( $context_post_id ), 'url' => $url ) );
+			return new WP_Error( 'ew_rpd_file_not_found', __( 'Archivo local no encontrado.', 'ew-remote-post-duplicator' ) );
+		}
+
+		$filetype = wp_check_filetype( basename( $file_path ) );
+		$mime     = ! empty( $filetype['type'] ) ? $filetype['type'] : 'application/octet-stream';
+		$result   = $this->client->upload_media( $file_path, basename( $file_path ), $mime );
+
+		if ( is_wp_error( $result ) ) {
+			$this->logger->error( 'File upload failed.', array( 'post_id' => absint( $context_post_id ), 'url' => $url, 'file_path' => $file_path, 'error' => $result->get_error_message() ) );
+			return $result;
+		}
+
+		if ( empty( $result['id'] ) ) {
+			return new WP_Error( 'ew_rpd_missing_media_id', __( 'El destino no devolvio ID para el medio.', 'ew-remote-post-duplicator' ) );
+		}
+
+		$remote_id  = absint( $result['id'] );
+		$remote_url = ! empty( $result['source_url'] ) ? esc_url_raw( $result['source_url'] ) : '';
+		$sizes      = $this->extract_remote_sizes( $result );
+
+		$this->logger->info( 'File synchronized by URL.', array( 'post_id' => absint( $context_post_id ), 'url' => $url, 'remote_media_id' => $remote_id ) );
+
+		return array( 'id' => $remote_id, 'source_url' => $remote_url, 'sizes' => $sizes );
+	}
+
+	/**
+	 * Check if a URL belongs to the local site.
+	 *
+	 * @param string $url URL to check.
+	 * @return bool
+	 */
+	private function is_local_url( $url ) {
+		$url_lower = strtolower( $url );
+		$site_url  = untrailingslashit( strtolower( site_url() ) );
+		$home_url  = untrailingslashit( strtolower( home_url() ) );
+
+		if ( 0 === strpos( $url_lower, $site_url . '/' ) || 0 === strpos( $url_lower, $home_url . '/' ) ) {
+			return true;
+		}
+
+		if ( 0 === strpos( $url_lower, '/wp-content/' ) || 0 === strpos( $url_lower, '/wp-includes/' ) ) {
+			return true;
+		}
+
+		$upload_dir = wp_get_upload_dir();
+		if ( ! empty( $upload_dir['baseurl'] ) ) {
+			$baseurl = untrailingslashit( strtolower( $upload_dir['baseurl'] ) );
+			if ( 0 === strpos( $url_lower, $baseurl . '/' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Convert a local URL to a local file path.
+	 *
+	 * @param string $url Local URL.
+	 * @return string|false
+	 */
+	private function url_to_local_path( $url ) {
+		$url = esc_url_raw( $url );
+
+		$upload_dir = wp_get_upload_dir();
+		if ( ! empty( $upload_dir['baseurl'] ) && ! empty( $upload_dir['basedir'] ) ) {
+			$baseurl = untrailingslashit( $upload_dir['baseurl'] );
+			$basedir = untrailingslashit( $upload_dir['basedir'] );
+
+			if ( 0 === strpos( $url, $baseurl . '/' ) ) {
+				return $basedir . substr( $url, strlen( $baseurl ) );
+			}
+		}
+
+		$site_url = untrailingslashit( site_url() );
+		if ( 0 === strpos( $url, $site_url . '/' ) ) {
+			return ABSPATH . substr( $url, strlen( $site_url ) + 1 );
+		}
+
+		$home_url = untrailingslashit( home_url() );
+		if ( 0 === strpos( $url, $home_url . '/' ) ) {
+			return ABSPATH . substr( $url, strlen( $home_url ) + 1 );
+		}
+
+		if ( 0 === strpos( $url, '/' ) ) {
+			return ABSPATH . ltrim( $url, '/' );
+		}
+
+		return false;
+	}
 }
