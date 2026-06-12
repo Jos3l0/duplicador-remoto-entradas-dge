@@ -32,6 +32,7 @@ class EW_RPD_Settings {
 		add_action( 'admin_menu', array( $this, 'register_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_post_ew_rpd_test_connection', array( $this, 'handle_test_connection' ) );
+		add_action( 'admin_post_ew_rpd_delete_logs', array( $this, 'handle_delete_logs' ) );
 		add_filter( 'plugin_action_links_' . EW_RPD_BASENAME, array( $this, 'plugin_action_links' ) );
 	}
 
@@ -265,6 +266,14 @@ class EW_RPD_Settings {
 					esc_attr( $options['destination_url'] )
 				);
 				echo '<p class="description">' . esc_html__( 'Usa HTTPS siempre que sea posible.', 'ew-remote-post-duplicator' ) . '</p>';
+
+				if ( ! empty( $options['destination_url'] ) && 0 !== strpos( $options['destination_url'], 'https://' ) ) {
+					printf(
+						'<div class="notice notice-warning inline" style="margin:8px 0 0;padding:8px 12px;"><p><strong>%s</strong> %s</p></div>',
+						esc_html__( 'Advertencia de seguridad:', 'ew-remote-post-duplicator' ),
+						esc_html__( 'La URL no usa HTTPS. Las credenciales viajan en texto plano. Se recomienda usar HTTPS para proteger el Application Password.', 'ew-remote-post-duplicator' )
+					);
+				}
 				break;
 
 			case 'username':
@@ -418,10 +427,50 @@ class EW_RPD_Settings {
 						<?php submit_button( __( 'Sincronizar ahora', 'ew-remote-post-duplicator' ), 'secondary', 'submit', false ); ?>
 					</form>
 				</div>
+
+				<div class="ew-rpd-card">
+					<h2><?php echo esc_html__( 'Sincronizacion masiva', 'ew-remote-post-duplicator' ); ?></h2>
+					<p><?php echo esc_html__( 'Sincroniza todas las entradas publicadas de una categoria.', 'ew-remote-post-duplicator' ); ?></p>
+					<label for="ew-rpd-bulk-category"><?php echo esc_html__( 'Categoria:', 'ew-remote-post-duplicator' ); ?></label>
+					<select id="ew-rpd-bulk-category" style="width:100%;margin-bottom:8px;">
+						<option value=""><?php echo esc_html__( '-- Seleccionar categoria --', 'ew-remote-post-duplicator' ); ?></option>
+						<?php
+						$categories = get_categories( array( 'hide_empty' => true ) );
+						foreach ( $categories as $cat ) {
+							printf(
+								'<option value="%s">%s (%d)</option>',
+								esc_attr( $cat->slug ),
+								esc_html( $cat->name ),
+								absint( $cat->count )
+							);
+						}
+						?>
+					</select>
+					<button type="button" id="ew-rpd-bulk-sync-btn" class="button button-primary" disabled>
+						<?php echo esc_html__( 'Sincronizar categoria completa', 'ew-remote-post-duplicator' ); ?>
+					</button>
+					<button type="button" id="ew-rpd-bulk-cancel-btn" class="button" style="display:none;margin-left:8px;">
+						<?php echo esc_html__( 'Cancelar', 'ew-remote-post-duplicator' ); ?>
+					</button>
+					<div id="ew-rpd-bulk-progress" style="display:none;margin-top:12px;">
+						<div class="ew-rpd-progress-bar">
+							<div class="ew-rpd-progress-fill"></div>
+						</div>
+						<p class="ew-rpd-progress-text"></p>
+						<ul class="ew-rpd-progress-results" style="max-height:200px;overflow:auto;font-size:12px;"></ul>
+					</div>
+				</div>
 			</div>
 
 			<div class="ew-rpd-card">
-				<h2><?php echo esc_html__( 'Ultimos logs', 'ew-remote-post-duplicator' ); ?></h2>
+				<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+					<h2 style="margin:0;"><?php echo esc_html__( 'Ultimos logs', 'ew-remote-post-duplicator' ); ?></h2>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="margin:0;">
+						<?php wp_nonce_field( 'ew_rpd_delete_logs' ); ?>
+						<input type="hidden" name="action" value="ew_rpd_delete_logs" />
+						<?php submit_button( __( 'Eliminar logs', 'ew-remote-post-duplicator' ), 'delete-small', 'submit', false ); ?>
+					</form>
+				</div>
 				<pre class="ew-rpd-log"><?php echo esc_html( implode( "\n", $this->logger->read_last_lines( 80 ) ) ); ?></pre>
 			</div>
 		</div>
@@ -456,6 +505,13 @@ class EW_RPD_Settings {
 			case 'manual_fail':
 				$type = 'error';
 				$text = __( 'Sincronizacion manual fallida. Revisa los logs.', 'ew-remote-post-duplicator' );
+				break;
+			case 'logs_deleted':
+				$text = __( 'Logs eliminados correctamente.', 'ew-remote-post-duplicator' );
+				break;
+			case 'logs_delete_fail':
+				$type = 'error';
+				$text = __( 'No se pudieron eliminar los logs.', 'ew-remote-post-duplicator' );
 				break;
 		}
 
@@ -492,6 +548,23 @@ class EW_RPD_Settings {
 
 		$this->logger->info( 'Connection test ok.', array( 'user' => isset( $response['name'] ) ? $response['name'] : '' ) );
 		$this->redirect_with_message( 'connection_ok' );
+	}
+
+	/**
+	 * Handle delete logs action.
+	 *
+	 * @return void
+	 */
+	public function handle_delete_logs() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'No tienes permisos suficientes.', 'ew-remote-post-duplicator' ) );
+		}
+
+		check_admin_referer( 'ew_rpd_delete_logs' );
+
+		$result = $this->logger->delete_logs();
+
+		$this->redirect_with_message( $result ? 'logs_deleted' : 'logs_delete_fail' );
 	}
 
 	/**

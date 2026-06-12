@@ -3,7 +3,7 @@
  * Plugin Name: Duplicador Remoto de Entradas DGE
  * Plugin URI:  https://www.mendoza.edu.ar/
  * Description: Duplica entradas publicadas hacia otro WordPress mediante REST API, Application Passwords y sincronizacion de medios internos.
- * Version:     1.0.7
+ * Version:     1.0.9
  * Author:      Por Equipo del Portal DGE Gob. de Mendoza
  * Author URI:  https://www.mendoza.edu.ar/
  * Text Domain: ew-remote-post-duplicator
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'EW_RPD_VERSION', '1.0.7' );
+define( 'EW_RPD_VERSION', '1.0.9' );
 define( 'EW_RPD_FILE', __FILE__ );
 define( 'EW_RPD_PATH', plugin_dir_path( __FILE__ ) );
 define( 'EW_RPD_URL', plugin_dir_url( __FILE__ ) );
@@ -26,6 +26,11 @@ define( 'EW_RPD_BASENAME', plugin_basename( __FILE__ ) );
 define( 'EW_RPD_OPTION_NAME', 'ew_rpd_settings' );
 
 require_once EW_RPD_PATH . 'includes/class-ew-rpd-plugin.php';
+
+register_activation_hook( __FILE__, array( 'EW_RPD_Plugin', 'activate' ) );
+register_deactivation_hook( __FILE__, array( 'EW_RPD_Plugin', 'deactivate' ) );
+
+add_action( 'plugins_loaded', array( 'EW_RPD_Plugin', 'instance' ) );
 
 /**
  * Force sync status column registration early for the native post list table.
@@ -38,7 +43,7 @@ function ew_rpd_register_forced_post_columns() {
 	add_action( 'manage_posts_custom_column', 'ew_rpd_force_render_sync_status_column', 1, 2 );
 	add_action( 'admin_head-edit.php', 'ew_rpd_force_sync_status_column_css' );
 }
-ew_rpd_register_forced_post_columns();
+add_action( 'plugins_loaded', 'ew_rpd_register_forced_post_columns' );
 
 /**
  * Add the synchronization status column after the title column.
@@ -47,7 +52,7 @@ ew_rpd_register_forced_post_columns();
  * @return array
  */
 function ew_rpd_force_sync_status_column( $columns ) {
-	if ( ! is_array( $columns ) || isset( $columns['ew_rpd_sync_status'] ) ) {
+	if ( ! is_array( $columns ) || isset( $columns['ew_rpd_sync'] ) ) {
 		return $columns;
 	}
 
@@ -58,13 +63,13 @@ function ew_rpd_force_sync_status_column( $columns ) {
 		$new_columns[ $key ] = $label;
 
 		if ( 'title' === $key ) {
-			$new_columns['ew_rpd_sync_status'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
+			$new_columns['ew_rpd_sync'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
 			$inserted = true;
 		}
 	}
 
 	if ( ! $inserted ) {
-		$new_columns['ew_rpd_sync_status'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
+		$new_columns['ew_rpd_sync'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
 	}
 
 	return $new_columns;
@@ -80,7 +85,7 @@ function ew_rpd_force_sync_status_column( $columns ) {
 function ew_rpd_force_render_sync_status_column( $column, $post_id ) {
 	static $rendered = array();
 
-	if ( 'ew_rpd_sync_status' !== $column ) {
+	if ( 'ew_rpd_sync' !== $column ) {
 		return;
 	}
 
@@ -93,61 +98,39 @@ function ew_rpd_force_render_sync_status_column( $column, $post_id ) {
 
 	$rendered[ $key ] = true;
 
-	$remote_id  = absint( get_post_meta( $post_id, '_ew_rpd_remote_post_id', true ) );
-	$status     = sanitize_key( (string) get_post_meta( $post_id, '_ew_rpd_last_sync_status', true ) );
-	$error      = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_error', true );
-	$remote_url = esc_url( (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true ) );
-	$sync_gmt   = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+	$post = get_post( $post_id );
 
-	if ( '' === $status && $remote_id > 0 ) {
-		$status = 'synced';
-	} elseif ( '' === $status ) {
-		$status = 'not_synced';
+	if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+		echo '<span class="dashicons dashicons-minus ew-rpd-col-icon ew-rpd-col-gray" title="' . esc_attr__( 'Solo se sincronizan entradas publicadas', 'ew-remote-post-duplicator' ) . '"></span>';
+		return;
 	}
 
-	$label = __( 'No sincronizado', 'ew-remote-post-duplicator' );
-	$class = 'not-synced';
-	$icon  = 'dashicons-minus';
-
-	if ( 'synced' === $status ) {
-		$label = __( 'Sincronizado', 'ew-remote-post-duplicator' );
-		$class = 'synced';
-		$icon  = 'dashicons-cloud-saved';
-	} elseif ( 'error' === $status ) {
-		$label = __( 'Error de sincronizacion', 'ew-remote-post-duplicator' );
-		$class = 'error';
-		$icon  = 'dashicons-warning';
-	} elseif ( 'partial' === $status ) {
-		$label = __( 'Sincronizacion parcial', 'ew-remote-post-duplicator' );
-		$class = 'partial';
-		$icon  = 'dashicons-cloud';
-	}
-
-	$title_parts = array( $label );
+	$remote_id   = absint( get_post_meta( $post_id, '_ew_rpd_remote_post_id', true ) );
+	$remote_url  = (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true );
+	$last_sync   = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+	$last_error  = (string) get_post_meta( $post_id, '_ew_rpd_last_error', true );
 
 	if ( $remote_id > 0 ) {
-		$title_parts[] = sprintf( __( 'ID remoto: %d', 'ew-remote-post-duplicator' ), $remote_id );
-	}
+		$tooltip_parts = array();
+		$tooltip_parts[] = sprintf( __( 'ID remoto: %d', 'ew-remote-post-duplicator' ), $remote_id );
 
-	if ( '' !== $sync_gmt ) {
-		$title_parts[] = sprintf( __( 'Ultima sincronizacion: %s GMT', 'ew-remote-post-duplicator' ), $sync_gmt );
-	}
+		if ( '' !== $last_sync ) {
+			$local_date = get_date_from_gmt( $last_sync, 'Y-m-d H:i:s' );
+			$tooltip_parts[] = sprintf( __( 'Ultima sincronizacion: %s', 'ew-remote-post-duplicator' ), $local_date );
+		}
 
-	if ( '' !== $error ) {
-		$title_parts[] = wp_strip_all_tags( $error );
-	}
+		$tooltip = implode( ' | ', $tooltip_parts );
 
-	echo '<div class="ew-rpd-sync-status ew-rpd-sync-status--' . esc_attr( $class ) . '" title="' . esc_attr( implode( ' | ', $title_parts ) ) . '">';
-	echo '<span class="dashicons ' . esc_attr( $icon ) . '"></span>';
-	echo '<span class="screen-reader-text">' . esc_html( $label ) . '</span>';
-	echo '</div>';
+		echo '<span class="dashicons dashicons-cloud ew-rpd-col-icon ew-rpd-col-blue" title="' . esc_attr( $tooltip ) . '"></span>';
 
-	if ( $remote_id > 0 ) {
-		echo '<div class="ew-rpd-sync-meta">ID ' . esc_html( (string) $remote_id ) . '</div>';
-	}
-
-	if ( '' !== $remote_url ) {
-		echo '<div class="ew-rpd-sync-meta"><a href="' . esc_url( $remote_url ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'Ver remoto', 'ew-remote-post-duplicator' ) . '</a></div>';
+		if ( '' !== $remote_url ) {
+			echo ' <a href="' . esc_url( $remote_url ) . '" target="_blank" rel="noopener noreferrer" class="ew-rpd-col-link" title="' . esc_attr__( 'Ver entrada remota', 'ew-remote-post-duplicator' ) . '"><span class="dashicons dashicons-admin-links"></span></a>';
+		}
+	} elseif ( '' !== $last_error ) {
+		$tooltip = sprintf( __( 'Error: %s', 'ew-remote-post-duplicator' ), $last_error );
+		echo '<span class="dashicons dashicons-warning ew-rpd-col-icon ew-rpd-col-orange" title="' . esc_attr( $tooltip ) . '"></span>';
+	} else {
+		echo '<span class="dashicons dashicons-cloud ew-rpd-col-icon ew-rpd-col-gray" title="' . esc_attr__( 'No sincronizado', 'ew-remote-post-duplicator' ) . '"></span>';
 	}
 }
 
@@ -159,19 +142,13 @@ function ew_rpd_force_render_sync_status_column( $column, $post_id ) {
 function ew_rpd_force_sync_status_column_css() {
 	?>
 	<style>
-		.fixed .column-ew_rpd_sync_status { width: 120px; text-align: center; }
-		.ew-rpd-sync-status .dashicons { font-size: 22px; width: 22px; height: 22px; line-height: 22px; }
-		.ew-rpd-sync-status--synced .dashicons { color: #2271b1; }
-		.ew-rpd-sync-status--error .dashicons { color: #b32d2e; }
-		.ew-rpd-sync-status--partial .dashicons { color: #996800; }
-		.ew-rpd-sync-status--not-synced .dashicons { color: #8c8f94; }
-		.ew-rpd-sync-meta { margin-top: 3px; font-size: 11px; line-height: 1.2; color: #646970; text-align: center; }
+		.fixed .column-ew_rpd_sync { width: 120px; text-align: center; }
+		.ew-rpd-col-icon { font-size: 18px; width: 18px; height: 18px; vertical-align: text-bottom; }
+		.ew-rpd-col-blue { color: #2271b1; }
+		.ew-rpd-col-orange { color: #dba617; }
+		.ew-rpd-col-gray { color: #a7aaad; }
+		.ew-rpd-col-link { text-decoration: none; vertical-align: text-bottom; }
+		.ew-rpd-col-link .dashicons { font-size: 14px; width: 14px; height: 14px; vertical-align: text-bottom; color: #2271b1; }
 	</style>
 	<?php
 }
-
-
-register_activation_hook( __FILE__, array( 'EW_RPD_Plugin', 'activate' ) );
-register_deactivation_hook( __FILE__, array( 'EW_RPD_Plugin', 'deactivate' ) );
-
-add_action( 'plugins_loaded', array( 'EW_RPD_Plugin', 'instance' ) );

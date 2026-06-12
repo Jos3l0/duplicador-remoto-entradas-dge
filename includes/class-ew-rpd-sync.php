@@ -64,35 +64,34 @@ class EW_RPD_Sync {
 		add_action( 'save_post', array( $this, 'maybe_sync_on_save' ), 30, 3 );
 		add_action( 'transition_post_status', array( $this, 'maybe_sync_on_status_transition' ), 30, 3 );
 		add_action( 'admin_post_ew_rpd_manual_sync', array( $this, 'handle_manual_sync' ) );
+		add_action( 'wp_ajax_ew_rpd_metabox_sync', array( $this, 'handle_metabox_sync' ) );
+		add_action( 'wp_ajax_ew_rpd_row_sync', array( $this, 'handle_row_sync' ) );
+		add_action( 'wp_ajax_ew_rpd_bulk_sync_batch', array( $this, 'handle_bulk_sync_batch' ) );
 		add_filter( 'post_row_actions', array( $this, 'add_row_action' ), 10, 2 );
 		add_filter( 'page_row_actions', array( $this, 'add_row_action' ), 10, 2 );
 
-		// Register list-table columns both early and in admin context to support admin screens loaded after plugin bootstrap.
-		add_action( 'init', array( $this, 'register_admin_columns' ), 30 );
-		add_action( 'admin_init', array( $this, 'register_admin_columns' ), 5 );
-
-		// Fallback for the native Posts list table, whose generic filters may run even when dynamic hooks are bypassed.
-		add_filter( 'manage_posts_columns', array( $this, 'add_sync_status_column_for_list_table' ), 10, 2 );
-		add_action( 'manage_posts_custom_column', array( $this, 'render_sync_status_column' ), 10, 2 );
+		$this->register_list_columns();
 	}
 
 	/**
-	 * Register admin list-table columns for allowed post types.
+	 * Register custom column for post list.
 	 *
 	 * @return void
 	 */
-	public function register_admin_columns() {
+	private function register_list_columns() {
 		$post_types = (array) $this->settings->get( 'post_types', array( 'post' ) );
 
 		foreach ( $post_types as $post_type ) {
-			$post_type = sanitize_key( $post_type );
-
-			if ( '' === $post_type || ! post_type_exists( $post_type ) ) {
-				continue;
+			if ( 'post' === $post_type ) {
+				add_filter( 'manage_posts_columns', array( $this, 'add_sync_column' ) );
+				add_action( 'manage_posts_custom_column', array( $this, 'render_sync_column' ), 10, 2 );
+			} elseif ( 'page' === $post_type ) {
+				add_filter( 'manage_pages_columns', array( $this, 'add_sync_column' ) );
+				add_action( 'manage_pages_custom_column', array( $this, 'render_sync_column' ), 10, 2 );
+			} else {
+				add_filter( 'manage_' . $post_type . '_posts_columns', array( $this, 'add_sync_column' ) );
+				add_action( 'manage_' . $post_type . '_posts_custom_column', array( $this, 'render_sync_column' ), 10, 2 );
 			}
-
-			add_filter( "manage_{$post_type}_posts_columns", array( $this, 'add_sync_status_column' ) );
-			add_action( "manage_{$post_type}_posts_custom_column", array( $this, 'render_sync_status_column' ), 10, 2 );
 		}
 	}
 
@@ -102,122 +101,83 @@ class EW_RPD_Sync {
 	 * @param array $columns Existing columns.
 	 * @return array
 	 */
-	public function add_sync_status_column( $columns ) {
-		if ( isset( $columns['ew_rpd_sync_status'] ) ) {
-			return $columns;
-		}
-
+	public function add_sync_column( $columns ) {
 		$new_columns = array();
-		$inserted    = false;
 
-		foreach ( $columns as $key => $label ) {
-			$new_columns[ $key ] = $label;
+		foreach ( $columns as $key => $value ) {
+			$new_columns[ $key ] = $value;
 
 			if ( 'title' === $key ) {
-				$new_columns['ew_rpd_sync_status'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
-				$inserted = true;
+				$new_columns['ew_rpd_sync'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
 			}
 		}
 
-		if ( ! $inserted ) {
-			$new_columns['ew_rpd_sync_status'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
+		if ( ! isset( $new_columns['ew_rpd_sync'] ) ) {
+			$new_columns['ew_rpd_sync'] = __( 'Sincronizado', 'ew-remote-post-duplicator' );
 		}
 
 		return $new_columns;
 	}
 
 	/**
-	 * Add sync status column for the generic posts list-table filter.
-	 *
-	 * @param array  $columns   Existing columns.
-	 * @param string $post_type Current post type.
-	 * @return array
-	 */
-	public function add_sync_status_column_for_list_table( $columns, $post_type ) {
-		$post_type = sanitize_key( (string) $post_type );
-
-		if ( '' === $post_type || ! $this->is_allowed_post_type( $post_type ) ) {
-			return $columns;
-		}
-
-		return $this->add_sync_status_column( $columns );
-	}
-
-	/**
 	 * Render sync status column.
 	 *
-	 * @param string $column  Column key.
-	 * @param int    $post_id Post ID.
+	 * @param string $column_name Column name.
+	 * @param int    $post_id     Post ID.
 	 * @return void
 	 */
-	public function render_sync_status_column( $column, $post_id ) {
-		if ( 'ew_rpd_sync_status' !== $column ) {
+	public function render_sync_column( $column_name, $post_id ) {
+		if ( 'ew_rpd_sync' !== $column_name ) {
 			return;
 		}
 
-		$post_id   = absint( $post_id );
-		$remote_id = absint( get_post_meta( $post_id, '_ew_rpd_remote_post_id', true ) );
-		$status    = sanitize_key( (string) get_post_meta( $post_id, '_ew_rpd_last_sync_status', true ) );
-		$error     = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_error', true );
-		$remote_url = esc_url( (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true ) );
-		$sync_gmt  = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+		$post = get_post( $post_id );
 
-		if ( '' === $status && $remote_id > 0 ) {
-			$status = 'synced';
-		} elseif ( '' === $status ) {
-			$status = 'not_synced';
+		if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+			echo '<span class="dashicons dashicons-minus ew-rpd-col-icon ew-rpd-col-gray" title="' . esc_attr__( 'Solo se sincronizan entradas publicadas', 'ew-remote-post-duplicator' ) . '"></span>';
+			return;
 		}
 
-		$label = __( 'No sincronizado', 'ew-remote-post-duplicator' );
-		$class = 'not-synced';
-		$icon  = 'dashicons-minus';
-
-		if ( 'synced' === $status ) {
-			$label = __( 'Sincronizado', 'ew-remote-post-duplicator' );
-			$class = 'synced';
-			$icon  = 'dashicons-cloud';
-		} elseif ( 'error' === $status ) {
-			$label = __( 'Error de sincronizacion', 'ew-remote-post-duplicator' );
-			$class = 'error';
-			$icon  = 'dashicons-cloud';
-		} elseif ( 'partial' === $status ) {
-			$label = __( 'Sincronizacion parcial', 'ew-remote-post-duplicator' );
-			$class = 'partial';
-			$icon  = 'dashicons-cloud';
-		}
-
-		$title_parts = array( $label );
+		$remote_id   = absint( get_post_meta( $post_id, '_ew_rpd_remote_post_id', true ) );
+		$remote_url  = (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true );
+		$last_sync   = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+		$last_error  = (string) get_post_meta( $post_id, '_ew_rpd_last_error', true );
 
 		if ( $remote_id > 0 ) {
-			$title_parts[] = sprintf( __( 'ID remoto: %d', 'ew-remote-post-duplicator' ), $remote_id );
-		}
+			$tooltip_parts = array();
 
-		if ( '' !== $sync_gmt ) {
-			$title_parts[] = sprintf( __( 'Ultima sincronizacion: %s', 'ew-remote-post-duplicator' ), get_date_from_gmt( $sync_gmt, 'Y-m-d H:i' ) );
-		}
-
-		if ( '' !== $error ) {
-			$title_parts[] = sprintf( __( 'Error: %s', 'ew-remote-post-duplicator' ), wp_strip_all_tags( $error ) );
-		}
-
-		printf(
-			'<span class="ew-rpd-sync-status ew-rpd-sync-status-%1$s" title="%2$s"><span class="dashicons %3$s" aria-hidden="true"></span><span class="ew-rpd-sync-badge" aria-hidden="true"></span><span class="screen-reader-text">%4$s</span></span>',
-			esc_attr( $class ),
-			esc_attr( implode( ' | ', $title_parts ) ),
-			esc_attr( $icon ),
-			esc_html( $label )
-		);
-
-		if ( $remote_id > 0 ) {
-			echo '<div class="ew-rpd-sync-meta">ID ' . esc_html( (string) $remote_id ) . '</div>';
-		}
-
-		if ( '' !== $remote_url ) {
-			printf(
-				'<div class="ew-rpd-sync-meta"><a href="%1$s" target="_blank" rel="noopener noreferrer">%2$s</a></div>',
-				esc_url( $remote_url ),
-				esc_html__( 'Ver remoto', 'ew-remote-post-duplicator' )
+			$tooltip_parts[] = sprintf(
+				/* translators: %d: remote post ID */
+				__( 'ID remoto: %d', 'ew-remote-post-duplicator' ),
+				$remote_id
 			);
+
+			if ( '' !== $last_sync ) {
+				$local_date = get_date_from_gmt( $last_sync, 'Y-m-d H:i:s' );
+				$tooltip_parts[] = sprintf(
+					/* translators: %s: date of last sync */
+					__( 'Ultima sincronizacion: %s', 'ew-remote-post-duplicator' ),
+					$local_date
+				);
+			}
+
+			$tooltip = implode( ' | ', $tooltip_parts );
+
+			echo '<span class="dashicons dashicons-cloud ew-rpd-col-icon ew-rpd-col-blue" title="' . esc_attr( $tooltip ) . '"></span>';
+
+			if ( '' !== $remote_url ) {
+				echo ' <a href="' . esc_url( $remote_url ) . '" target="_blank" rel="noopener noreferrer" class="ew-rpd-col-link" title="' . esc_attr__( 'Ver entrada remota', 'ew-remote-post-duplicator' ) . '"><span class="dashicons dashicons-admin-links"></span></a>';
+			}
+		} elseif ( '' !== $last_error ) {
+			$tooltip = sprintf(
+				/* translators: %s: error message */
+				__( 'Error: %s', 'ew-remote-post-duplicator' ),
+				$last_error
+			);
+
+			echo '<span class="dashicons dashicons-warning ew-rpd-col-icon ew-rpd-col-orange" title="' . esc_attr( $tooltip ) . '"></span>';
+		} else {
+			echo '<span class="dashicons dashicons-cloud ew-rpd-col-icon ew-rpd-col-gray" title="' . esc_attr__( 'No sincronizado', 'ew-remote-post-duplicator' ) . '"></span>';
 		}
 	}
 
@@ -266,7 +226,7 @@ class EW_RPD_Sync {
 	}
 
 	/**
-	 * Handle manual sync action.
+	 * Handle manual sync action from settings page.
 	 *
 	 * @return void
 	 */
@@ -289,6 +249,191 @@ class EW_RPD_Sync {
 			)
 		);
 		exit;
+	}
+
+	/**
+	 * Handle AJAX sync request from meta box.
+	 *
+	 * @return void
+	 */
+	public function handle_metabox_sync() {
+		check_ajax_referer( 'ew_rpd_metabox_sync', 'nonce' );
+
+		$post_id = isset( $_POST['post_id'] ) ? absint( wp_unslash( $_POST['post_id'] ) ) : 0;
+
+		if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error(
+				array( 'message' => __( 'No tienes permisos suficientes para sincronizar esta entrada.', 'ew-remote-post-duplicator' ) ),
+				403
+			);
+		}
+
+		$result = $this->sync_post( $post_id, true );
+
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error(
+				array(
+					'message'   => $result->get_error_message(),
+					'errorCode' => $result->get_error_code(),
+				),
+				400
+			);
+		}
+
+		$remote_url = (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true );
+		$last_sync  = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+
+		wp_send_json_success(
+			array(
+				'message'   => __( 'Entrada sincronizada correctamente.', 'ew-remote-post-duplicator' ),
+				'remoteId'  => absint( $result ),
+				'remoteUrl' => esc_url( $remote_url ),
+				'lastSync'  => '' !== $last_sync ? get_date_from_gmt( $last_sync, 'Y-m-d H:i:s' ) : '',
+			)
+		);
+	}
+
+	/**
+	 * Handle AJAX sync request from row action link.
+	 *
+	 * @return void
+	 */
+	public function handle_row_sync() {
+		check_ajax_referer( 'ew_rpd_row_sync', 'nonce' );
+
+		$post_id = isset( $_POST['post_id'] ) ? absint( wp_unslash( $_POST['post_id'] ) ) : 0;
+
+		if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+			wp_send_json_error(
+				array( 'message' => __( 'No tienes permisos suficientes para sincronizar esta entrada.', 'ew-remote-post-duplicator' ) ),
+				403
+			);
+		}
+
+		$result = $this->sync_post( $post_id, true );
+
+		if ( is_wp_error( $result ) ) {
+			update_post_meta( $post_id, '_ew_rpd_last_error', sanitize_text_field( $result->get_error_message() ) );
+			update_post_meta( $post_id, '_ew_rpd_last_sync_gmt', current_time( 'mysql', true ) );
+
+			wp_send_json_error(
+				array(
+					'message'   => $result->get_error_message(),
+					'errorCode' => $result->get_error_code(),
+					'hasError'  => true,
+				),
+				400
+			);
+		}
+
+		$remote_url = (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true );
+		$last_sync  = (string) get_post_meta( $post_id, '_ew_rpd_last_sync_gmt', true );
+
+		wp_send_json_success(
+			array(
+				'message'   => __( 'Entrada sincronizada correctamente.', 'ew-remote-post-duplicator' ),
+				'remoteId'  => absint( $result ),
+				'remoteUrl' => esc_url( $remote_url ),
+				'lastSync'  => '' !== $last_sync ? get_date_from_gmt( $last_sync, 'Y-m-d H:i:s' ) : '',
+				'postId'    => $post_id,
+			)
+		);
+	}
+
+	/**
+	 * Handle AJAX bulk sync batch for a category.
+	 *
+	 * Accepts: category_slug, offset, batch_size.
+	 * Returns: processed, total, results[], done, offset.
+	 *
+	 * @return void
+	 */
+	public function handle_bulk_sync_batch() {
+		check_ajax_referer( 'ew_rpd_bulk_sync', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => __( 'No tienes permisos suficientes.', 'ew-remote-post-duplicator' ) ), 403 );
+		}
+
+		$category_slug = isset( $_POST['category_slug'] ) ? sanitize_title( wp_unslash( $_POST['category_slug'] ) ) : '';
+		$offset        = isset( $_POST['offset'] ) ? absint( wp_unslash( $_POST['offset'] ) ) : 0;
+		$batch_size    = isset( $_POST['batch_size'] ) ? min( 10, max( 1, absint( wp_unslash( $_POST['batch_size'] ) ) ) ) : 5;
+
+		if ( '' === $category_slug ) {
+			wp_send_json_error( array( 'message' => __( 'Categoria no especificada.', 'ew-remote-post-duplicator' ) ), 400 );
+		}
+
+		$term = get_term_by( 'slug', $category_slug, 'category' );
+
+		if ( ! $term instanceof WP_Term ) {
+			wp_send_json_error( array( 'message' => __( 'Categoria no encontrada.', 'ew-remote-post-duplicator' ) ), 400 );
+		}
+
+		$allowed_post_types = (array) $this->settings->get( 'post_types', array( 'post' ) );
+
+		$query = new WP_Query(
+			array(
+				'post_type'      => $allowed_post_types,
+				'post_status'    => 'publish',
+				'category_name'  => $category_slug,
+				'posts_per_page' => $batch_size,
+				'offset'         => $offset,
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+				'fields'         => 'ids',
+				'no_found_rows'  => false,
+				'meta_query'     => array(
+					array(
+						'key'     => '_ew_rpd_remote_copy',
+						'compare' => 'NOT EXISTS',
+					),
+				),
+			)
+		);
+
+		$total_posts  = absint( $query->found_posts );
+		$results      = array();
+		$processed    = 0;
+		$errors       = 0;
+
+		foreach ( $query->posts as $post_id ) {
+			$result = $this->sync_post( $post_id, true );
+
+			if ( is_wp_error( $result ) ) {
+				$results[] = array(
+					'postId'  => absint( $post_id ),
+					'title'   => get_the_title( $post_id ),
+					'status'  => 'error',
+					'message' => $result->get_error_message(),
+				);
+				$errors++;
+			} else {
+				$remote_url = (string) get_post_meta( $post_id, '_ew_rpd_remote_url', true );
+				$results[]  = array(
+					'postId'    => absint( $post_id ),
+					'title'     => get_the_title( $post_id ),
+					'status'    => 'ok',
+					'remoteId'  => absint( $result ),
+					'remoteUrl' => esc_url( $remote_url ),
+				);
+				$processed++;
+			}
+		}
+
+		$new_offset = $offset + count( $query->posts );
+		$done       = $new_offset >= $total_posts;
+
+		wp_send_json_success(
+			array(
+				'processed'  => $processed,
+				'errors'     => $errors,
+				'total'      => $total_posts,
+				'done'       => $done,
+				'offset'     => $new_offset,
+				'results'    => $results,
+				'category'   => $category_slug,
+			)
+		);
 	}
 
 	/**
@@ -319,9 +464,11 @@ class EW_RPD_Sync {
 		);
 
 		$actions['ew_rpd_sync'] = sprintf(
-			'<a href="%1$s">%2$s</a>',
+			'<a href="%1$s" class="ew-rpd-row-sync" data-post-id="%3$d" data-nonce="%4$s">%2$s</a>',
 			esc_url( $url ),
-			esc_html__( 'Sincronizar remoto', 'ew-remote-post-duplicator' )
+			esc_html__( 'Sincronizar remoto', 'ew-remote-post-duplicator' ),
+			absint( $post->ID ),
+			wp_create_nonce( 'ew_rpd_row_sync' )
 		);
 
 		return $actions;
@@ -345,10 +492,6 @@ class EW_RPD_Sync {
 		$validation = $this->validate_post_for_sync( $post, $manual );
 
 		if ( is_wp_error( $validation ) ) {
-			if ( $manual ) {
-				$this->update_sync_status( $post_id, 'error', $validation->get_error_message() );
-			}
-
 			$this->logger->warning( 'Post skipped.', array( 'post_id' => $post_id, 'reason' => $validation->get_error_message() ) );
 			return $validation;
 		}
@@ -368,11 +511,24 @@ class EW_RPD_Sync {
 
 		try {
 			$remote_id = absint( get_post_meta( $post_id, '_ew_rpd_remote_post_id', true ) );
+
+			// If no remote ID stored, search destination by slug to avoid duplicates.
+			if ( 0 === $remote_id && ! empty( $post->post_name ) ) {
+				$found_id = $this->find_remote_post_by_slug( $post->post_type, $post->post_name );
+
+				if ( $found_id > 0 ) {
+					$remote_id = $found_id;
+					update_post_meta( $post_id, '_ew_rpd_remote_post_id', $remote_id );
+					$this->logger->info( 'Found existing remote post by slug. Will update instead of create.', array( 'post_id' => $post_id, 'remote_id' => $remote_id, 'slug' => $post->post_name ) );
+				}
+			}
+
+			$original_remote_id = $remote_id;
+
 			$hash      = $this->build_content_hash( $post );
 			$old_hash  = (string) get_post_meta( $post_id, '_ew_rpd_last_hash', true );
 
 			if ( ! $manual && $remote_id > 0 && $hash === $old_hash ) {
-				$this->update_sync_status( $post_id, 'synced', '' );
 				$this->logger->info( 'Post unchanged. Remote sync skipped.', array( 'post_id' => $post_id, 'remote_id' => $remote_id ) );
 				return $remote_id;
 			}
@@ -384,7 +540,7 @@ class EW_RPD_Sync {
 
 			$payload = $this->build_payload( $post );
 			$path    = $this->get_remote_post_path( $post->post_type, $remote_id );
-			$method  = $remote_id > 0 ? 'POST' : 'POST';
+			$method  = 'POST';
 			$result  = $this->client->request( $method, $path, $payload );
 
 			if ( is_wp_error( $result ) && ! empty( $payload['meta'] ) && $this->looks_like_meta_rejection( $result ) ) {
@@ -393,16 +549,30 @@ class EW_RPD_Sync {
 				$result = $this->client->request( $method, $path, $payload );
 			}
 
+			// If remote ID was specified but the post no longer exists on destination,
+			// clear the stored ID and retry as a create.
+			if ( is_wp_error( $result ) && $original_remote_id > 0 && $this->looks_like_remote_not_found( $result ) ) {
+				$this->logger->warning( 'Remote post not found on destination. Clearing stored ID and creating new.', array( 'post_id' => $post_id, 'old_remote_id' => $original_remote_id ) );
+				delete_post_meta( $post_id, '_ew_rpd_remote_post_id' );
+				delete_post_meta( $post_id, '_ew_rpd_remote_url' );
+				$remote_id = 0;
+				$path      = $this->get_remote_post_path( $post->post_type, 0 );
+				$result    = $this->client->request( $method, $path, $payload );
+			}
+
 			if ( is_wp_error( $result ) ) {
-				$this->update_sync_status( $post_id, 'error', $result->get_error_message() );
-				$this->logger->error( 'Post sync failed.', array( 'post_id' => $post_id, 'error' => $result->get_error_message() ) );
+				$error_message = $result->get_error_message();
+				$this->logger->error( 'Post sync failed.', array( 'post_id' => $post_id, 'error' => $error_message ) );
+				update_post_meta( $post_id, '_ew_rpd_last_error', sanitize_text_field( $error_message ) );
+				update_post_meta( $post_id, '_ew_rpd_last_sync_gmt', current_time( 'mysql', true ) );
 				return $result;
 			}
 
 			if ( empty( $result['id'] ) ) {
 				$error = new WP_Error( 'ew_rpd_missing_remote_id', __( 'El destino no devolvio ID remoto.', 'ew-remote-post-duplicator' ) );
-				$this->update_sync_status( $post_id, 'error', $error->get_error_message() );
 				$this->logger->error( 'Post sync failed without remote ID.', array( 'post_id' => $post_id ) );
+				update_post_meta( $post_id, '_ew_rpd_last_error', sanitize_text_field( $error->get_error_message() ) );
+				update_post_meta( $post_id, '_ew_rpd_last_sync_gmt', current_time( 'mysql', true ) );
 				return $error;
 			}
 
@@ -411,7 +581,8 @@ class EW_RPD_Sync {
 			update_post_meta( $post_id, '_ew_rpd_remote_post_id', $remote_id );
 			update_post_meta( $post_id, '_ew_rpd_remote_url', isset( $result['link'] ) ? esc_url_raw( $result['link'] ) : '' );
 			update_post_meta( $post_id, '_ew_rpd_last_hash', $hash );
-			$this->update_sync_status( $post_id, 'synced', '' );
+			update_post_meta( $post_id, '_ew_rpd_last_sync_gmt', current_time( 'mysql', true ) );
+			delete_post_meta( $post_id, '_ew_rpd_last_error' );
 
 			$this->logger->info( 'Post synchronized.', array( 'post_id' => $post_id, 'remote_id' => $remote_id, 'manual' => (bool) $manual ) );
 
@@ -613,15 +784,6 @@ class EW_RPD_Sync {
 			}
 		}
 
-		// Sync Elementor data if present.
-		$elementor_data = $this->prepare_elementor_data_for_remote( $post->ID );
-		if ( '' !== $elementor_data ) {
-			if ( ! isset( $payload['meta'] ) ) {
-				$payload['meta'] = array();
-			}
-			$payload['meta']['_elementor_data'] = $elementor_data;
-		}
-
 		if ( $this->settings->get( 'send_loop_meta', 1 ) ) {
 			$payload['meta'] = array(
 				'_ew_rpd_remote_copy'    => true,
@@ -630,49 +792,62 @@ class EW_RPD_Sync {
 			);
 		}
 
+		$elementor_data = $this->prepare_elementor_data_for_remote( $post->ID );
+		if ( '' !== $elementor_data ) {
+			if ( ! isset( $payload['meta'] ) ) {
+				$payload['meta'] = array();
+			}
+			$payload['meta']['_elementor_data'] = $elementor_data;
+		}
+
 		return $payload;
 	}
 
 	/**
 	 * Prepare post content by uploading embedded local media and replacing local URLs/IDs.
 	 *
+	 * Handles both WordPress attachments (by ID) and arbitrary file URLs (PDFs, images, etc.).
+	 *
 	 * @param WP_Post $post Post object.
 	 * @return string
 	 */
 	private function prepare_content_for_remote( WP_Post $post ) {
 		$content = (string) $post->post_content;
-		$ids     = $this->collect_content_media_ids( $content );
 
-		if ( empty( $ids ) ) {
-			return $content;
-		}
-
+		// Step 1: Migrate WordPress attachments by ID.
+		$ids = $this->collect_content_media_ids( $content );
 		$map = array();
 
-		foreach ( $ids as $attachment_id ) {
-			$remote = $this->media->sync_attachment( $attachment_id, $post->ID );
+		if ( ! empty( $ids ) ) {
+			foreach ( $ids as $attachment_id ) {
+				$remote = $this->media->sync_attachment( $attachment_id, $post->ID );
 
-			if ( is_wp_error( $remote ) || empty( $remote['id'] ) ) {
-				$this->logger->warning(
-					'Embedded media skipped.',
-					array(
-						'post_id'       => $post->ID,
-						'attachment_id' => $attachment_id,
-						'error'         => is_wp_error( $remote ) ? $remote->get_error_message() : 'missing remote id',
-					)
-				);
-				continue;
+				if ( is_wp_error( $remote ) || empty( $remote['id'] ) ) {
+					$this->logger->warning(
+						'Embedded media skipped.',
+						array(
+							'post_id'       => $post->ID,
+							'attachment_id' => $attachment_id,
+							'error'         => is_wp_error( $remote ) ? $remote->get_error_message() : 'missing remote id',
+						)
+					);
+					continue;
+				}
+
+				$map[ $attachment_id ] = $remote;
 			}
 
-			$map[ $attachment_id ] = $remote;
+			if ( ! empty( $map ) ) {
+				$content = $this->replace_embedded_media_urls( $content, $map );
+				$content = $this->replace_embedded_media_ids( $content, $map );
+			}
 		}
 
-		if ( empty( $map ) ) {
-			return $content;
+		// Step 2: Migrate any local file URLs by URL (PDFs, images not in media library, etc.).
+		$url_map = $this->migrate_content_media_urls( $content, $post->ID );
+		if ( ! empty( $url_map ) ) {
+			$content = $this->replace_urls_in_content( $content, $url_map );
 		}
-
-		$content = $this->replace_embedded_media_urls( $content, $map );
-		$content = $this->replace_embedded_media_ids( $content, $map );
 
 		return $content;
 	}
@@ -1044,6 +1219,36 @@ class EW_RPD_Sync {
 	}
 
 	/**
+	 * Search destination for an existing post by slug.
+	 *
+	 * @param string $post_type Post type.
+	 * @param string $slug      Post slug.
+	 * @return int Remote post ID, or 0 if not found.
+	 */
+	private function find_remote_post_by_slug( $post_type, $slug ) {
+		$post_type_object = get_post_type_object( $post_type );
+		$rest_base        = $post_type_object && ! empty( $post_type_object->rest_base ) ? $post_type_object->rest_base : $post_type;
+		$path             = sprintf(
+			'/wp-json/wp/v2/%s?slug=%s&per_page=1&status=publish,draft,pending,private',
+			rawurlencode( $rest_base ),
+			rawurlencode( $slug )
+		);
+
+		$response = $this->client->request( 'GET', $path );
+
+		if ( is_wp_error( $response ) ) {
+			$this->logger->warning( 'Slug lookup failed.', array( 'slug' => $slug, 'error' => $response->get_error_message() ) );
+			return 0;
+		}
+
+		if ( ! empty( $response[0]['id'] ) ) {
+			return absint( $response[0]['id'] );
+		}
+
+		return 0;
+	}
+
+	/**
 	 * Build content hash.
 	 *
 	 * @param WP_Post $post Post object.
@@ -1095,7 +1300,38 @@ class EW_RPD_Sync {
 	}
 
 	/**
+	 * Detect if remote error means the post no longer exists on destination.
+	 *
+	 * @param WP_Error $error Error.
+	 * @return bool
+	 */
+	private function looks_like_remote_not_found( WP_Error $error ) {
+		$data   = $error->get_error_data();
+		$status = is_array( $data ) && isset( $data['status'] ) ? absint( $data['status'] ) : 0;
+
+		if ( 404 === $status ) {
+			return true;
+		}
+
+		$message = strtolower( $error->get_error_message() );
+
+		$patterns = array( 'no es válido', 'no es valido', 'not found', 'invalid', 'no existe', 'rest_post_invalid_id' );
+
+		foreach ( $patterns as $pattern ) {
+			if ( false !== strpos( $message, $pattern ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * Prepare Elementor data by migrating embedded media and replacing local URLs.
+	 *
+	 * Reads _elementor_data postmeta, finds all local media URLs (PDFs, images,
+	 * documents, etc.), uploads each file to the destination, and replaces the
+	 * URLs in the JSON. External URLs are preserved unchanged.
 	 *
 	 * @param int $post_id Post ID.
 	 * @return string Modified Elementor JSON or empty string.
@@ -1139,7 +1375,7 @@ class EW_RPD_Sync {
 	}
 
 	/**
-	 * Extract all absolute and relative URLs from content.
+	 * Extract all absolute and relative media URLs from content.
 	 *
 	 * @param string $content Content.
 	 * @return array
@@ -1169,6 +1405,10 @@ class EW_RPD_Sync {
 	/**
 	 * Replace all URLs in content with remote URLs.
 	 *
+	 * Preserves the original structure (Elementor tags, shortcodes, iframes)
+	 * and only replaces URLs. Sorts by length descending to avoid
+	 * partial replacements.
+	 *
 	 * @param string $content Content.
 	 * @param array  $url_map Map of original URL to remote URL.
 	 * @return string
@@ -1188,5 +1428,112 @@ class EW_RPD_Sync {
 		}
 
 		return $content;
+	}
+
+	/**
+	 * Migrate all local file URLs found in content.
+	 *
+	 * Extracts URLs from Gutenberg blocks, <a href>, <img src>,
+	 * and any local file reference, then uploads each via sync_file_by_url().
+	 *
+	 * @param string $content Content.
+	 * @param int    $post_id Post ID.
+	 * @return array Map of original URL => remote URL.
+	 */
+	private function migrate_content_media_urls( $content, $post_id ) {
+		$urls = $this->collect_content_media_urls( $content );
+
+		if ( empty( $urls ) ) {
+			return array();
+		}
+
+		$url_map = array();
+
+		foreach ( $urls as $url ) {
+			$remote = $this->media->sync_file_by_url( $url, $post_id );
+
+			if ( is_wp_error( $remote ) ) {
+				$this->logger->warning(
+					'Content media URL skipped.',
+					array(
+						'post_id' => $post_id,
+						'url'     => $url,
+						'error'   => $remote->get_error_message(),
+					)
+				);
+				continue;
+			}
+
+			if ( ! empty( $remote['source_url'] ) ) {
+				$url_map[ $url ] = $remote['source_url'];
+			}
+		}
+
+		return $url_map;
+	}
+
+	/**
+	 * Collect all local file URLs referenced in content.
+	 *
+	 * Extracts URLs from:
+	 * - Gutenberg block comments with "url" attribute (e.g. pdfemb)
+	 * - <a href="..."> tags pointing to local files
+	 * - <img src="..."> tags
+	 * - Any URL containing /wp-content/uploads/ with a file extension
+	 *
+	 * @param string $content Post content.
+	 * @return array
+	 */
+	private function collect_content_media_urls( $content ) {
+		$urls = array();
+
+		if ( '' === (string) $content ) {
+			return $urls;
+		}
+
+		// Pattern 1: Gutenberg block comments with "url":"..." (e.g. pdfemb)
+		if ( preg_match_all( '/"url"\s*:\s*"([^"]+\.(?:pdf|png|jpe?g|gif|webp|avif|doc|docx|xls|xlsx|ppt|pptx|zip|mp3|mp4|mov|svg))"/i', $content, $matches ) ) {
+			foreach ( $matches[1] as $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		// Pattern 2: <a href="..."> pointing to local files
+		if ( preg_match_all( '/<a[^>]+href=["\']([^"\']+\.(?:pdf|png|jpe?g|gif|webp|avif|doc|docx|xls|xlsx|ppt|pptx|zip|mp3|mp4|mov|svg))["\']/i', $content, $matches ) ) {
+			foreach ( $matches[1] as $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		// Pattern 3: <img src="...">
+		if ( preg_match_all( '/<img[^>]+src=["\']([^"\']+)["\']/i', $content, $matches ) ) {
+			foreach ( $matches[1] as $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		// Pattern 4: Any URL in /wp-content/uploads/ with file extension
+		if ( preg_match_all( '#https?://[^\s"\'<>\)]+/wp-content/uploads/[^\s"\'<>\)]+\.[a-z0-9]{2,5}#i', $content, $matches ) ) {
+			foreach ( $matches[0] as $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		// Pattern 5: Any URL in /wp-includes/ with file extension
+		if ( preg_match_all( '#https?://[^\s"\'<>\)]+/wp-includes/[^\s"\'<>\)]+\.[a-z0-9]{2,5}#i', $content, $matches ) ) {
+			foreach ( $matches[0] as $url ) {
+				$urls[] = $url;
+			}
+		}
+
+		// Filter only local URLs via media service.
+		$local_urls = array();
+		foreach ( array_unique( $urls ) as $url ) {
+			if ( $this->media->is_local_url( $url ) ) {
+				$local_urls[] = $url;
+			}
+		}
+
+		return array_values( array_unique( $local_urls ) );
 	}
 }

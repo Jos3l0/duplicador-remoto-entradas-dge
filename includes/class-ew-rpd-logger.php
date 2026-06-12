@@ -15,11 +15,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 class EW_RPD_Logger {
 
 	/**
-	 * Relative directory under uploads.
+	 * Relative directory under WP_CONTENT_DIR.
 	 *
 	 * @var string
 	 */
-	const LOG_DIR = 'ew-remote-post-duplicator';
+	const LOG_DIR = 'ew-rpd-logs';
 
 	/**
 	 * Log filename.
@@ -29,7 +29,14 @@ class EW_RPD_Logger {
 	const LOG_FILE = 'sync.log';
 
 	/**
-	 * Ensure log directory exists.
+	 * Maximum log file size in bytes before rotation (5 MB).
+	 *
+	 * @var int
+	 */
+	const MAX_LOG_SIZE = 5242880;
+
+	/**
+	 * Ensure log directory exists with protection files.
 	 *
 	 * @return void
 	 */
@@ -60,9 +67,7 @@ class EW_RPD_Logger {
 	 * @return string
 	 */
 	public function get_log_directory() {
-		$uploads = wp_upload_dir();
-
-		return trailingslashit( $uploads['basedir'] ) . self::LOG_DIR;
+		return trailingslashit( WP_CONTENT_DIR ) . self::LOG_DIR;
 	}
 
 	/**
@@ -130,6 +135,31 @@ class EW_RPD_Logger {
 	}
 
 	/**
+	 * Delete log file.
+	 *
+	 * @return bool
+	 */
+	public function delete_logs() {
+		$file = $this->get_log_file();
+
+		if ( ! file_exists( $file ) ) {
+			return true;
+		}
+
+		if ( ! is_writable( $file ) ) {
+			return false;
+		}
+
+		$result = unlink( $file );
+
+		if ( $result ) {
+			$this->info( 'Logs deleted by user.' );
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Write log line.
 	 *
 	 * @param string $level   Log level.
@@ -146,6 +176,8 @@ class EW_RPD_Logger {
 			return;
 		}
 
+		$this->maybe_rotate( $file );
+
 		$context = $this->mask_sensitive_context( $context );
 		$line    = sprintf(
 			"[%s] [%s] %s %s\n",
@@ -156,6 +188,28 @@ class EW_RPD_Logger {
 		);
 
 		file_put_contents( $file, $line, FILE_APPEND | LOCK_EX ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+	}
+
+	/**
+	 * Rotate log file if it exceeds maximum size.
+	 *
+	 * @param string $file Log file path.
+	 * @return void
+	 */
+	private function maybe_rotate( $file ) {
+		if ( ! file_exists( $file ) ) {
+			return;
+		}
+
+		$size = filesize( $file );
+
+		if ( false === $size || $size < self::MAX_LOG_SIZE ) {
+			return;
+		}
+
+		$backup = $file . '.' . gmdate( 'YmdHis' ) . '.bak';
+
+		rename( $file, $backup );
 	}
 
 	/**

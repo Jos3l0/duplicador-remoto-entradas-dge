@@ -1,33 +1,71 @@
 # Changelog
 
-## 1.0.7 - 2026-06-12
+## 1.0.9 - 2026-06-12
 
-- Agregada migracion de medios desde Elementor: procesa `_elementor_data` postmeta y migra PDFs, imagenes y cualquier archivo referenciado en el JSON.
-- Nuevo metodo `sync_file_by_url()` en `EW_RPD_Media` para migrar cualquier archivo por su URL local.
-- URLs de terceros (dominios externos) se preservan sin cambios en el contenido.
-- Archivos locales no registrados como attachments se leen del disco y se suben directamente.
+### Correcciones de columna administrativa
+- Agregado registro forzado de columna `Sincronizado` desde `wp-remote-post-duplicator.php` usando hooks directos (`manage_post_posts_columns`, `manage_posts_columns`, etc.) para garantizar que la columna se registre antes de que WordPress construya la tabla de entradas.
+- Agregado CSS inline en `admin_head-edit.php` para los iconos de estado de sincronizacion.
 
-## 1.0.6
+### Migracion de medios en contenido Gutenberg (no-Elementor)
+- Agregado `migrate_content_media_urls()` en `EW_RPD_Sync` para migrar archivos por URL directa en el contenido de entradas (no solo attachments).
+- Agregado `collect_content_media_urls()` que extrae URLs de: bloques Gutenberg con atributo `url` (e.g. `pdfemb`), tags `<a href>` a archivos locales, tags `<img src>`, y cualquier URL en `/wp-content/uploads/` o `/wp-includes/` con extension de archivo.
+- Usa `sync_file_by_url()` para subir cualquier archivo local (PDFs, imagenes, documentos, etc.) aunque no esten registrados como WordPress attachments.
 
-- Correccion definitiva de la columna administrativa **Sincronizado**.
-- La columna se registra desde el bootstrap principal del plugin para que exista antes de que WordPress construya la tabla de entradas.
-- Se agregan hooks directos para `manage_post_posts_columns`, `manage_posts_columns`, `manage_post_posts_custom_column` y `manage_posts_custom_column`.
+### Soporte para dominios adicionales locales
+- `is_local_url()` en `EW_RPD_Media` ahora acepta dominios adicionales via el filtro `ew_rpd_local_domains`.
+- Esto permite que URLs de subdominios como `recursos.mendoza.edu.ar` se traten como locales y se migren correctamente.
 
-# Changelog
+## 1.0.8 - 2026-06-12
 
-## 1.0.6
-- Corregido el registro de la columna administrativa `Sincronizado` para que aparezca en la lista nativa de entradas.
-- Agregado fallback con `manage_posts_columns` y `manage_posts_custom_column`.
-- Agregado registro adicional en `admin_init` para evitar que el hook quede fuera de tiempo en pantallas de administración.
+### Migracion de medios desde Elementor y todos los tipos de archivo
+- Agregado `sync_file_by_url()` en `EW_RPD_Media` para migrar cualquier archivo por URL local (PDFs, imagenes, documentos, etc.), incluso si no estan registrados como attachments de WordPress.
+- Agregado `prepare_elementor_data_for_remote()` en `EW_RPD_Sync` que procesa `_elementor_data` postmeta, migra todos los medios referenciados y reemplaza URLs locales por URLs remotas.
+- Los datos de Elementor migran con su estructura intacta; solo se reemplazan las URLs de archivos.
+- Archivos locales no registrados se leen del disco y se suben directamente via REST API.
+- URLs de terceros (dominios externos) se preservan sin cambios.
+- Agregado `is_local_url()` y `url_to_local_path()` para resolucion de archivos.
 
-## 1.0.4
+### Correccion de bug en build_payload
+- Corregido bug donde `send_loop_meta` sobrescribia `_elementor_data` en el payload.
+- Ahora `_elementor_data` se agrega despues del loop meta.
 
-- Agregada columna administrativa `Sincronizado` en el listado de entradas y tipos de contenido configurados.
-- La columna se inserta entre `Titulo` y `Categorias`.
-- Agregados iconos visuales para estados: sincronizado, no sincronizado, error y sincronizacion parcial.
-- Agregados metadatos de estado: `_ew_rpd_last_sync_status` y `_ew_rpd_last_sync_error`.
-- La columna muestra ID remoto, enlace `Ver remoto` y tooltip con ultima sincronizacion/error cuando corresponde.
-- Actualizado valor de version del plugin a 1.0.4.
+## 1.0.5 - 2026-06-08
+
+### Nueva funcionalidad
+- **Sincronización masiva por categoría**: sincroniza todas las entradas publicadas de una categoría completa.
+- Barra de progreso en tiempo real con conteo de OK/errores.
+- Resultados por entrada visibles durante el proceso.
+- Procesamiento por lotes de 5 en 5 para evitar timeouts.
+
+### Correcciones
+- Iconos de columna: nube azul = sincronizado, nube gris = pendiente, sin tilde verde ni ID.
+- Row action "Sincronizar remoto" ahora usa AJAX sin redirigir.
+- Zip de distribución corregido: carpeta contenedora dentro del zip para evitar duplicados al instalar.
+
+## 1.0.4 - 2026-06-08
+
+### Seguridad
+- Logs movidos de `wp-content/uploads/` a `wp-content/ew-rpd-logs/` para reducir exposición pública.
+- Advertencia visual en ajustes si la URL destino no usa HTTPS.
+- Advertencia en logs (una por ciclo) si la conexión no es HTTPS.
+- Rotación automática de logs al superar 5 MB.
+- Sanitización reforzada en todos los nuevos endpoints.
+
+### UX / Interfaz
+- **Meta box "Sincronización remota"** en el editor de entradas: muestra estado, ID remoto, enlace "Ver remoto", última sincronización y botón para sincronizar vía AJAX.
+- **Columna "Sincronizado"** en el listado de entradas (entre Título y Categorías) con iconos de estado:
+  - ☁️✅ Verde: sincronizado
+  - ☁️ Azul: pendiente
+  - ⚠️ Naranja: error
+  - ➖ Gris: no aplica
+- Tooltip con ID remoto y fecha de última sincronización en la columna.
+- Enlace "Ver remoto" desde la columna.
+- Botón "Eliminar logs" en la página de ajustes con confirmación visual.
+
+### Funcionalidad
+- Tracking de errores por entrada (`_ew_rpd_last_error`).
+- Sincronización desde meta box vía AJAX (sin recargar la página).
+- Limpieza del directorio de logs en desinstalación.
 
 ## 1.0.3
 

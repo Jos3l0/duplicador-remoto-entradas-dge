@@ -40,6 +40,13 @@ class EW_RPD_HTTP_Client {
 	}
 
 	/**
+	 * Flag to avoid repeated HTTPS warnings in the same request lifecycle.
+	 *
+	 * @var bool
+	 */
+	private static $https_warned = false;
+
+	/**
 	 * Perform JSON REST request.
 	 *
 	 * @param string $method  HTTP method.
@@ -53,6 +60,8 @@ class EW_RPD_HTTP_Client {
 		if ( is_wp_error( $url ) ) {
 			return $url;
 		}
+
+		$this->maybe_warn_https( $url );
 
 		$args = array(
 			'method'      => strtoupper( $method ),
@@ -88,6 +97,8 @@ class EW_RPD_HTTP_Client {
 		if ( is_wp_error( $url ) ) {
 			return $url;
 		}
+
+		$this->maybe_warn_https( $url );
 
 		if ( ! is_readable( $file_path ) ) {
 			return new WP_Error( 'ew_rpd_media_not_readable', __( 'El archivo local no se puede leer.', 'ew-remote-post-duplicator' ) );
@@ -177,6 +188,29 @@ class EW_RPD_HTTP_Client {
 		$destination_url = untrailingslashit( strtolower( (string) $this->settings->get( 'destination_url', '' ) ) );
 
 		return substr( hash( 'sha256', $destination_url ), 0, 12 );
+	}
+
+	/**
+	 * Log a warning once per request lifecycle if destination is not HTTPS.
+	 *
+	 * @param string $url Full request URL.
+	 * @return void
+	 */
+	private function maybe_warn_https( $url ) {
+		if ( self::$https_warned ) {
+			return;
+		}
+
+		if ( 0 === strpos( $url, 'https://' ) ) {
+			return;
+		}
+
+		self::$https_warned = true;
+
+		$this->logger->warning(
+			'Insecure connection: destination URL does not use HTTPS. Credentials are transmitted in plain text.',
+			array( 'url' => $url )
+		);
 	}
 
 	/**

@@ -216,6 +216,9 @@ class EW_RPD_Media {
 	/**
 	 * Sync any file by URL to the destination media library.
 	 *
+	 * Handles PDFs, images, documents, and any file type
+	 * referenced by local URL - even if not registered as a WordPress attachment.
+	 *
 	 * @param string $url             URL to sync.
 	 * @param int    $context_post_id Optional local post ID for logging.
 	 * @return array|WP_Error Remote media object subset or error.
@@ -269,10 +272,12 @@ class EW_RPD_Media {
 	/**
 	 * Check if a URL belongs to the local site.
 	 *
+	 * Supports additional local domains via the `ew_rpd_local_domains` filter.
+	 *
 	 * @param string $url URL to check.
 	 * @return bool
 	 */
-	private function is_local_url( $url ) {
+	public function is_local_url( $url ) {
 		$url_lower = strtolower( $url );
 		$site_url  = untrailingslashit( strtolower( site_url() ) );
 		$home_url  = untrailingslashit( strtolower( home_url() ) );
@@ -290,6 +295,16 @@ class EW_RPD_Media {
 			$baseurl = untrailingslashit( strtolower( $upload_dir['baseurl'] ) );
 			if ( 0 === strpos( $url_lower, $baseurl . '/' ) ) {
 				return true;
+			}
+		}
+
+		$additional_domains = apply_filters( 'ew_rpd_local_domains', array() );
+		if ( is_array( $additional_domains ) ) {
+			foreach ( $additional_domains as $domain ) {
+				$domain = untrailingslashit( strtolower( (string) $domain ) );
+				if ( '' !== $domain && 0 === strpos( $url_lower, $domain . '/' ) ) {
+					return true;
+				}
 			}
 		}
 

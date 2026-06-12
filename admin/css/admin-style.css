@@ -32,94 +32,173 @@
 	white-space: pre-wrap;
 }
 
-
-.fixed .column-ew_rpd_sync_status {
-	width: 130px;
-}
-
-.ew-rpd-sync-status {
-	align-items: center;
-	border-radius: 999px;
-	display: inline-flex;
-	height: 28px;
-	justify-content: center;
-	position: relative;
-	vertical-align: middle;
-	width: 38px;
-}
-
-.ew-rpd-sync-status .dashicons {
-	font-size: 24px;
-	height: 24px;
-	width: 24px;
-}
-
-.ew-rpd-sync-badge {
-	align-items: center;
-	border: 2px solid #fff;
-	border-radius: 50%;	
-	bottom: 1px;
-	display: inline-flex;
-	font-size: 10px;
-	font-weight: 700;
-	height: 14px;
-	justify-content: center;
-	line-height: 1;
-	position: absolute;
-	right: 1px;
-	width: 14px;
-}
-
-.ew-rpd-sync-status-synced {
-	color: #2271b1;
-}
-
-.ew-rpd-sync-status-synced .ew-rpd-sync-badge {
-	background: #00a32a;
-}
-
-.ew-rpd-sync-status-synced .ew-rpd-sync-badge::before {
+/* Delete logs button */
+.wp-core-ui .button.delete-small {
+	background: #b32d2e;
+	border-color: #b32d2e;
 	color: #fff;
-	content: "✓";
 }
 
-.ew-rpd-sync-status-error {
+.wp-core-ui .button.delete-small:hover,
+.wp-core-ui .button.delete-small:focus {
+	background: #d63638;
+	border-color: #d63638;
+	color: #fff;
+}
+
+/* Meta box styles */
+.ew-rpd-metabox-content {
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.ew-rpd-metabox-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 10px;
+	font-weight: 600;
+}
+
+.ew-rpd-status-icon {
+	font-size: 16px;
+}
+
+.ew-rpd-metabox-detail {
+	margin-bottom: 10px;
+}
+
+.ew-rpd-metabox-detail p {
+	margin: 4px 0;
+}
+
+.ew-rpd-metabox-date {
+	color: #646970;
+	font-size: 12px;
+}
+
+.ew-rpd-metabox-actions {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid #dcdcde;
+}
+
+.ew-rpd-metabox-result {
+	font-size: 12px;
+	font-weight: 600;
+	width: 100%;
+	margin-top: 6px;
+}
+
+.ew-rpd-metabox-result.ew-rpd-success {
+	color: #008a20;
+}
+
+.ew-rpd-metabox-result.ew-rpd-error {
 	color: #b32d2e;
 }
 
-.ew-rpd-sync-status-error .ew-rpd-sync-badge {
-	background: #d63638;
+.ew-rpd-spinner {
+	visibility: hidden;
 }
 
-.ew-rpd-sync-status-error .ew-rpd-sync-badge::before {
-	color: #fff;
-	content: "!";
+.ew-rpd-spinner.is-active {
+	visibility: visible;
 }
 
-.ew-rpd-sync-status-partial {
-	color: #b26200;
+/* Admin list column styles */
+.ew-rpd-col-icon {
+	font-size: 18px;
+	width: 18px;
+	height: 18px;
+	vertical-align: text-bottom;
 }
 
-.ew-rpd-sync-status-partial .ew-rpd-sync-badge {
-	background: #dba617;
+.ew-rpd-col-green {
+	color: #008a20;
 }
 
-.ew-rpd-sync-status-partial .ew-rpd-sync-badge::before {
-	color: #1d2327;
-	content: "…";
+.ew-rpd-col-orange {
+	color: #dba617;
 }
 
-.ew-rpd-sync-status-not-synced {
-	color: #8c8f94;
+.ew-rpd-col-blue {
+	color: #2271b1;
 }
 
-.ew-rpd-sync-status-not-synced .ew-rpd-sync-badge {
-	display: none;
+.ew-rpd-col-gray {
+	color: #a7aaad;
 }
 
-.ew-rpd-sync-meta {
-	color: #646970;
+.ew-rpd-col-link {
+	text-decoration: none;
+	vertical-align: text-bottom;
+}
+
+.ew-rpd-col-link .dashicons {
+	font-size: 14px;
+	width: 14px;
+	height: 14px;
+	vertical-align: text-bottom;
+	color: #2271b1;
+}
+
+.ew-rpd-col-id {
 	font-size: 11px;
-	line-height: 1.35;
-	margin-top: 2px;
+	color: #646970;
+	cursor: help;
+}
+
+.ew-rpd-col-error-text {
+	font-size: 11px;
+	color: #b32d2e;
+	font-weight: 600;
+}
+
+.ew-rpd-col-pending-text {
+	font-size: 11px;
+	color: #646970;
+}
+
+/* Width of sync column */
+th#ew_rpd_sync {
+	width: 120px;
+}
+
+/* Bulk sync progress bar */
+.ew-rpd-progress-bar {
+	background: #dcdcde;
+	border-radius: 4px;
+	height: 18px;
+	overflow: hidden;
+	margin-bottom: 6px;
+}
+
+.ew-rpd-progress-fill {
+	background: #2271b1;
+	border-radius: 4px;
+	height: 100%;
+	width: 0%;
+	transition: width 0.3s ease;
+}
+
+.ew-rpd-progress-text {
+	font-size: 13px;
+	font-weight: 600;
+	margin: 4px 0 8px;
+}
+
+.ew-rpd-progress-results {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.ew-rpd-progress-results li {
+	border-bottom: 1px solid #f0f0f1;
+	padding: 3px 0;
 }
